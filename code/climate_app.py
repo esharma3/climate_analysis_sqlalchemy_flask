@@ -2,7 +2,7 @@ import os
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.orm import Session
 from sqlalchemy import create_engine, func
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 import datetime
 degree_sign = u"\N{DEGREE SIGN}"
 
@@ -30,6 +30,7 @@ session = Session(engine)
 # / - Home page - List all routes that are available.
 @app.route("/")
 def home():
+
     return (
         "<h1>Welcome to Home Page</h1><br>"
         "Routes Available:<br><br>"
@@ -39,9 +40,9 @@ def home():
         "<br>/api/v1.0/stations"
         "<br><br>* List of dates and temperature observations from a year from the last data point:"
         "<br>/api/v1.0/tobs"
-        "<br><br>* Needs start date in format YYYYMMDD. Returns the min, avg, max of temperature from the start date provided:"
+        "<br><br>* Needs start date in format YYYY-MM-DD. Returns the min, avg, max of temperature from the start date provided:"
         "<br>/api/v1.0/<start>"
-        "<br><br>* Needs start and end date in format YYYYMMDD. Returns the min, avg, max of temperature from the start date till end date provided:"
+        "<br><br>* Needs start and end date in format YYYY-MM-DD. Returns the min, avg, max of temperature from the start date till end date provided:"
         "<br>/api/v1.0/<start>/<end></br>"
     )
 
@@ -54,6 +55,7 @@ date_twelve_months_ago = datetime.date(2017, 8, 23) - datetime.timedelta(days=36
 # /api/v1.0/precipitation - Convert the query results to a Dictionary using `date` as the key and `prcp` as the value. Return the JSON representation of your dictionary.
 @app.route("/precipitation")
 def precipitation():
+
     prcp_data = (
         session.query(Measurement.date, Measurement.prcp)
         .filter(Measurement.date > date_twelve_months_ago)
@@ -75,6 +77,7 @@ def precipitation():
 # /api/v1.0/stations - Return a JSON list of stations from the dataset.
 @app.route("/stations")
 def stations():
+
     stations = session.query(Station.station, Station.name).distinct().all()
 
     station_list = []
@@ -90,6 +93,7 @@ def stations():
 # /api/v1.0/tobs - query for the dates and temperature observations from a year from the last data point. Return a JSON list of Temperature Observations (tobs) for the previous year.
 @app.route("/tobs")
 def tobs():
+
     tobs_data = (
         session.query(Measurement.date, Measurement.tobs)
         .filter(Measurement.date > date_twelve_months_ago)
@@ -110,60 +114,106 @@ def tobs():
 # /api/v1.0/<start> - When given the start only, calculate `TMIN`, `TAVG`, and `TMAX` for all dates greater than and equal to the start date.
 @app.route("/<start>")
 def start(start=None):
-	start = datetime.datetime.strptime(start, "%Y%m%d")
-	temps_data = (
-        session.query(
-            Measurement.date,
-            func.min(Measurement.tobs),
-            func.round(func.avg(Measurement.tobs), 2),
-            func.max(Measurement.tobs),
-        )
-        .filter(Measurement.date >= start)
-        .group_by(Measurement.date)
-        .all()
-        )
 
-	temps_list = []
-	for temp in temps_data:
-		temp_record = {}
-		temp_record["date"] = temp[0]
-		temp_record[f"min temp {degree_sign}F"] = temp[1]
-		temp_record[f"avg temp {degree_sign}F"] = temp[2]
-		temp_record[f"max temp {degree_sign}F"] = temp[3]
-		temps_list.append(temp_record)
+	try:
 
-	return jsonify(temps_list)
+		start_date = datetime.datetime.strptime(start, "%Y-%m-%d").date()
+
+		temps_data = (
+	        session.query(
+	            Measurement.date,
+	            func.min(Measurement.tobs),
+	            func.round(func.avg(Measurement.tobs), 2),
+	            func.max(Measurement.tobs),
+	        )
+	        .filter(func.date(Measurement.date) >= start_date)
+	        .group_by(Measurement.date)
+	        .all()
+	        )
+
+		temps_list = []
+		for temp in temps_data:
+			temp_record = {}
+			temp_record["date"] = temp[0]
+			temp_record[f"min temp {degree_sign}F"] = temp[1]
+			temp_record[f"avg temp {degree_sign}F"] = temp[2]
+			temp_record[f"max temp {degree_sign}F"] = temp[3]
+			temps_list.append(temp_record)
+
+		return jsonify(temps_list)
+
+	except Exception as e:
+		return jsonify({"status": "failure", "error": str(e)})
 
 
 # /api/v1.0/<start> and /api/v1.0/<start>/<end> - When given the start and the end date, calculate the `TMIN`, `TAVG`, and `TMAX` for dates between the start and end date inclusive.
 @app.route("/<start>/<end>")
 def start_end(start=None, end=None):
-	start = datetime.datetime.strptime(start, "%Y%m%d")
-	end = datetime.datetime.strptime(end, "%Y%m%d")
-	temps_data = (
-        session.query(
+
+	try:
+		start = datetime.datetime.strptime(start, "%Y-%m-%d").date()
+		end = datetime.datetime.strptime(end, "%Y-%m-%d").date()
+
+		temps_data = (
+	        session.query(
+	            Measurement.date,
+	            func.min(Measurement.tobs),
+	            func.round(func.avg(Measurement.tobs), 2),
+	            func.max(Measurement.tobs),
+	        )
+	        .filter(Measurement.date >= start)
+	        .filter(Measurement.date <= end)
+	        .group_by(Measurement.date)
+	        .all()
+	    	)
+
+		temps_list = []
+		for temp in temps_data:
+			temp_record = {}
+			temp_record["date"] = temp[0]
+			temp_record[f"min temp {degree_sign}F"] = temp[1]
+			temp_record[f"avg temp {degree_sign}F"] = temp[2]
+			temp_record[f"max temp {degree_sign}F"] = temp[3]
+			temps_list.append(temp_record)
+
+		return jsonify(temps_list)
+
+	except Exception as e:
+		return jsonify({"status": "failure", "error": str(e)})
+
+
+# Alternate solution to start and end date date query. This ones works like API search string. Ex: http://127.0.0.1:5000/search_type?start=2015-10-01&end=2015-11-01 
+@app.route("/search_type")
+def search_type():
+
+	request_start = request.args.get("start")
+	request_end = request.args.get("end")
+
+	try:
+		base_cmd = session.query(
             Measurement.date,
             func.min(Measurement.tobs),
             func.round(func.avg(Measurement.tobs), 2),
             func.max(Measurement.tobs),
         )
-        .filter(Measurement.date >= start)
-        .filter(Measurement.date <= end)
-        .group_by(Measurement.date)
-        .all()
-    	)
 
-	temps_list = []
-	for temp in temps_data:
-		temp_record = {}
-		temp_record["date"] = temp[0]
-		temp_record[f"min temp {degree_sign}F"] = temp[1]
-		temp_record[f"avg temp {degree_sign}F"] = temp[2]
-		temp_record[f"max temp {degree_sign}F"] = temp[3]
-		temps_list.append(temp_record)
+		if request_start:
+			start = datetime.datetime.strptime(request_start, "%Y-%m-%d").date()
+			base_cmd = base_cmd.filter(Measurement.date >= start)
 
-	return jsonify(temps_list)
+		if request_end:
+			end = datetime.datetime.strptime(request_end, "%Y-%m-%d").date()
+			base_cmd = base_cmd.filter(Measurement.date <= end)
+
+		data = base_cmd.group_by(Measurement.date).all()
+
+		return jsonify(data)
+	
+	except Exception as e:
+		return jsonify({"status": "failure", "error": str(e)})
 
 
+
+# main script
 if __name__ == "__main__":
     app.run(debug=True)
